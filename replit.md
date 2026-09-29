@@ -1,6 +1,6 @@
-# [Project name]
+# AI VLSI PPA Optimizer
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An interactive RTL design-space exploration dashboard for predicting and optimizing power, energy, area and timing across parameterized digital VLSI circuits.
 
 ## Run & Operate
 
@@ -22,15 +22,20 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/vlsi-optimizer/src/App.tsx` — first-build dashboard and local deterministic PPA surrogate behavior.
+- `artifacts/vlsi-optimizer/src/index.css` — instrument-console visual system.
+- `attached_assets/Synopsis_AI_Based_Optimization_of_VLSI_Circuits-smriti1_1790698226991.pdf` — approved project scope and methodology.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first build is a frontend-only local demo so the team can validate the research workflow before wiring real Yosys/OpenSTA/OpenROAD runs.
+- The app follows the synopsis: parameterized arithmetic circuits first, then ALU/MAC, with comparator/FIR reserved for generalization testing.
+- The model bench uses the synopsis model set: Linear Regression, Random Forest, XGBoost, LightGBM, CatBoost and a compact ANN/MLP.
+- Predictions are directional until verified by synthesis; the UI exposes budget flags and a Pareto candidate frontier rather than presenting surrogate output as sign-off data.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+The dashboard lets users tune circuit family, architecture, bit width, pipeline depth, clock period and toggle activity; compare model scores; inspect predicted PPA; adjust design budgets; flag violations; and load Pareto-ranked candidate configurations.
 
 ## User preferences
 
@@ -38,7 +43,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The current sample data and inference are deterministic local demo values, not connected to an EDA tool yet.
+- Real power and energy labels will require the scripted RTL/EDA data-generation pipeline described in the synopsis.
 
 ## Pointers
 
