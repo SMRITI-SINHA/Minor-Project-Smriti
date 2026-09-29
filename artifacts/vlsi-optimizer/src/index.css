@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+}
+
+:root {
+  --background: 215 28% 10%;
+  --foreground: 210 24% 92%;
+  --card: 216 25% 13%;
+  --card-foreground: 210 24% 92%;
+  --border: 215 18% 24%;
+  --input: 215 18% 27%;
+  --ring: 182 88% 55%;
+  --primary: 182 88% 55%;
+  --primary-foreground: 215 35% 8%;
+  --secondary: 217 22% 18%;
+  --secondary-foreground: 210 24% 86%;
+  --muted: 215 22% 16%;
+  --muted-foreground: 214 13% 59%;
+  --accent: 33 94% 63%;
+  --accent-foreground: 215 35% 8%;
+  --destructive: 3 76% 63%;
+  --destructive-foreground: 215 35% 8%;
+  --chart-1: 182 88% 55%;
+  --chart-2: 33 94% 63%;
+  --chart-3: 270 72% 72%;
+  --chart-4: 145 62% 58%;
+  --chart-5: 3 76% 63%;
+  --sidebar: 218 29% 8%;
+  --sidebar-foreground: 210 24% 87%;
+  --sidebar-border: 215 20% 18%;
+  --sidebar-primary: 182 88% 55%;
+  --sidebar-primary-foreground: 215 35% 8%;
+  --sidebar-accent: 217 25% 15%;
+  --sidebar-accent-foreground: 210 24% 92%;
+  --sidebar-ring: 182 88% 55%;
+  --app-font-sans: 'Manrope', sans-serif;
+  --app-font-mono: 'DM Mono', monospace;
+  --radius: 0.6rem;
+}
+
+.dark {
+  --background: 215 28% 10%;
+  --foreground: 210 24% 92%;
+  --card: 216 25% 13%;
+  --card-foreground: 210 24% 92%;
+  --border: 215 18% 24%;
+  --input: 215 18% 27%;
+  --ring: 182 88% 55%;
+  --primary: 182 88% 55%;
+  --primary-foreground: 215 35% 8%;
+  --secondary: 217 22% 18%;
+  --secondary-foreground: 210 24% 86%;
+  --muted: 215 22% 16%;
+  --muted-foreground: 214 13% 59%;
+  --accent: 33 94% 63%;
+  --accent-foreground: 215 35% 8%;
+  --destructive: 3 76% 63%;
+  --destructive-foreground: 215 35% 8%;
+  --sidebar: 218 29% 8%;
+  --sidebar-foreground: 210 24% 87%;
+  --sidebar-border: 215 20% 18%;
+  --sidebar-primary: 182 88% 55%;
+  --sidebar-primary-foreground: 215 35% 8%;
+  --sidebar-accent: 217 25% 15%;
+  --sidebar-accent-foreground: 210 24% 92%;
+  --sidebar-ring: 182 88% 55%;
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { background: hsl(var(--background)); }
+  body { @apply font-sans antialiased bg-background text-foreground; margin: 0; }
+  button, input, select { font: inherit; }
+}
+
+@layer utilities {
+  .font-mono-ui { font-family: var(--app-font-mono); }
+  .tracking-console { letter-spacing: 0.16em; }
+}
+
+.console-shell {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 85% -10%, hsl(182 55% 22% / 0.16), transparent 32rem),
+    radial-gradient(circle at 16% 100%, hsl(270 35% 22% / 0.12), transparent 28rem),
+    hsl(var(--background));
+}
+.console-grid {
+  background-image: linear-gradient(hsl(215 20% 35% / 0.035) 1px, transparent 1px), linear-gradient(90deg, hsl(215 20% 35% / 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.scanline { position: relative; overflow: hidden; }
+.scanline::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, hsl(182 88% 55% / 0.035) 49%, transparent 51%);
+  background-size: 100% 8px;
+  opacity: .5;
+}
+.panel {
+  background: linear-gradient(145deg, hsl(216 25% 15% / .96), hsl(216 25% 12% / .96));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 14px 36px hsl(215 40% 3% / .18);
+}
+.panel-header { border-bottom: 1px solid hsl(var(--border)); }
+.hairline { border-color: hsl(215 18% 24%); }
+.metric-value { font-family: var(--app-font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.04em; }
+.signal { box-shadow: 0 0 0 3px hsl(182 88% 55% / .08), 0 0 18px hsl(182 88% 55% / .2); }
+.status-dot { width: 7px; height: 7px; border-radius: 999px; background: hsl(var(--primary)); box-shadow: 0 0 0 3px hsl(var(--primary) / .12), 0 0 12px hsl(var(--primary) / .5); }
+.select-console, .input-console {
+  appearance: none;
+  background: hsl(217 22% 10%);
+  border: 1px solid hsl(var(--input));
+  color: hsl(var(--foreground));
+  border-radius: .42rem;
+  min-height: 38px;
+  outline: none;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.select-console { padding: 0 32px 0 11px; background-image: linear-gradient(45deg, transparent 50%, hsl(var(--muted-foreground)) 50%), linear-gradient(135deg, hsl(var(--muted-foreground)) 50%, transparent 50%); background-position: calc(100% - 14px) 16px, calc(100% - 10px) 16px; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+.input-console { padding: 0 11px; }
+.select-console:focus, .input-console:focus { border-color: hsl(var(--primary)); box-shadow: 0 0 0 3px hsl(var(--primary) / .1); }
+.range-console { accent-color: hsl(var(--primary)); width: 100%; }
+.button-console { transition: transform .18s ease, background-color .18s ease, border-color .18s ease; }
+.button-console:hover { transform: translateY(-1px); }
+.button-console:active { transform: translateY(0); }
+.reveal { animation: reveal .45s ease both; }
+@keyframes reveal { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+@media (max-width: 767px) {
+  .mobile-scroll { overflow-x: auto; }
+  .panel { box-shadow: 0 10px 24px hsl(215 40% 3% / .13); }
+}
