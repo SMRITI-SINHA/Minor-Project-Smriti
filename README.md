@@ -7,7 +7,8 @@ The app now runs a reproducible, real synthesis benchmark for adders. Select **R
 - API: `GET /api/healthz`, `GET /api/benchmark/status`, `POST /api/benchmark/run`.
 - Start the combined frontend/API workflow with `bash scripts/dev-stack.sh`.
 - The Nangate45 Liberty file is downloaded into the ignored `.cache/` directory on first run if it is not already present.
-- Benchmarks currently cover adders only. Results live in the current browser session; there is no persistent run history, trained surrogate model, physical place-and-route, power estimate, or generalized optimizer yet.
+- Benchmarks currently cover adders only. The API saves up to 50 runs as local JSON under `.cache/eda/`, which survives page reloads but is not a shared or production database. There is no trained surrogate model, physical place-and-route, power estimate, or generalized optimizer yet.
+- The UI marks the area/delay Pareto set within each bit width; this is a measured, two-objective comparison with idealized timing, not a multi-family or signoff optimization.
 - The old dashboard still contains heuristic preview controls and illustrative candidates. They are labeled as uncalibrated/not measured; only rows in “Synthesis benchmark results” are measured EDA output.
 
 The rest of this README describes the original prototype and research goals, not additional implemented capabilities.

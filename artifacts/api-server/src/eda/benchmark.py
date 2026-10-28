@@ -111,8 +111,17 @@ def main():
         raise RuntimeError(f"Liberty file missing: {LIBERTY}")
     rows = [benchmark(arch, width) for width in WIDTHS for arch in ARCHES]
     for width in WIDTHS:
-        winner = min((row for row in rows if row["bitWidth"] == width), key=lambda row: row["areaUm2"])
+        width_rows = [row for row in rows if row["bitWidth"] == width]
+        winner = min(width_rows, key=lambda row: row["areaUm2"])
         winner["bestAreaAtWidth"] = True
+        for candidate in width_rows:
+            candidate["pareto"] = not any(
+                other is not candidate
+                and other["areaUm2"] <= candidate["areaUm2"]
+                and other["delayNs"] <= candidate["delayNs"]
+                and (other["areaUm2"] < candidate["areaUm2"] or other["delayNs"] < candidate["delayNs"])
+                for other in width_rows
+            )
     print(json.dumps({"status": "complete", "platform": "Nangate45 typical", "toolVersions": {
         "yosys": run(["yosys", "-V"], Path.cwd()).strip(),
         "iverilog": run(["iverilog", "-V"], Path.cwd()).splitlines()[0],

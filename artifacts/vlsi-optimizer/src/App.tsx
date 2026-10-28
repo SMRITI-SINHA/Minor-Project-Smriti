@@ -67,11 +67,12 @@ type EdaResult = {
   areaUm2: number;
   delayNs: number | null;
   bestAreaAtWidth?: boolean;
+  pareto?: boolean;
   simulation: string;
   synthesis: string;
   timingSource: string;
 };
-type EdaRun = { status: string; platform: string; toolVersions: Record<string, string>; results: EdaResult[] };
+type EdaRun = { id?: string; createdAt?: string; status: string; platform: string; toolVersions: Record<string, string>; results: EdaResult[]; history?: EdaRun[] };
 
 const defaultConfig: CircuitConfig = {
   family: 'Adder',
@@ -236,7 +237,7 @@ function ModelPanel() {
   return (
     <section id="model-bench" className="panel reveal rounded-lg" style={{ animationDelay: '240ms' }} data-testid="panel-models">
       <PanelTitle icon={LineChart} eyebrow="05 / model comparison" title="Model bench" detail="No training dataset or validation scores are available yet." action={<span className="font-mono-ui text-[9px] text-amber-200">NOT TRAINED</span>} />
-      <div data-testid="status-models-empty" className="flex min-h-[170px] items-center justify-center px-5 text-center text-[11px] text-slate-500">Benchmark data is not persisted between runs yet, so model training and validation scores are unavailable.</div>
+      <div data-testid="status-models-empty" className="flex min-h-[170px] items-center justify-center px-5 text-center text-[11px] text-slate-500">Saved runs are still too limited for reliable model training or validation. No model accuracy claims are shown.</div>
     </section>
   );
 }
@@ -256,11 +257,20 @@ function EdaResultsPanel({ run }: { run: EdaRun }) {
       <PanelTitle icon={Cpu} eyebrow="EDA / measured run" title="Synthesis benchmark results" detail={`${run.platform} · ${run.results.length} RTL points · functional simulation passed`} action={<span className="font-mono-ui text-[9px] text-emerald-300">REAL TOOL OUTPUT</span>} />
       <div className="mobile-scroll">
         <table className="w-full min-w-[600px] text-left">
-          <thead><tr className="border-b border-slate-800 text-[9px] uppercase tracking-wider text-slate-600"><th className="px-5 py-3">Architecture</th><th className="px-3 py-3">Width</th><th className="px-3 py-3">Mapped area</th><th className="px-3 py-3">Max path</th><th className="px-5 py-3">Simulation</th></tr></thead>
-          <tbody>{run.results.map((item) => <tr key={`${item.architecture}-${item.bitWidth}`} className="border-b border-slate-800/70 last:border-0"><td className="px-5 py-3 text-[11px] text-slate-300">{item.architecture}{item.bestAreaAtWidth && <span className="ml-2 rounded bg-emerald-300/10 px-1.5 py-0.5 font-mono-ui text-[8px] text-emerald-300">LOWEST AREA AT WIDTH</span>}</td><td className="px-3 py-3 font-mono-ui text-[11px]">{item.bitWidth} bit</td><td className="px-3 py-3 font-mono-ui text-[11px] text-violet-200">{item.areaUm2.toFixed(3)} µm²</td><td className="px-3 py-3 text-[10px] text-slate-500">{item.delayNs == null ? 'No timed path' : `${item.delayNs.toFixed(3)} ns`}</td><td className="px-5 py-3 text-[10px] text-emerald-300">{item.simulation}</td></tr>)}</tbody>
+          <thead><tr className="border-b border-slate-800 text-[9px] uppercase tracking-wider text-slate-600"><th className="px-5 py-3">Architecture</th><th className="px-3 py-3">Width</th><th className="px-3 py-3">Mapped area</th><th className="px-3 py-3">Max path</th><th className="px-3 py-3">Frontier</th><th className="px-5 py-3">Simulation</th></tr></thead>
+          <tbody>{run.results.map((item) => <tr key={`${item.architecture}-${item.bitWidth}`} className="border-b border-slate-800/70 last:border-0"><td className="px-5 py-3 text-[11px] text-slate-300">{item.architecture}{item.bestAreaAtWidth && <span className="ml-2 rounded bg-emerald-300/10 px-1.5 py-0.5 font-mono-ui text-[8px] text-emerald-300">LOWEST AREA</span>}</td><td className="px-3 py-3 font-mono-ui text-[11px]">{item.bitWidth} bit</td><td className="px-3 py-3 font-mono-ui text-[11px] text-violet-200">{item.areaUm2.toFixed(3)} µm²</td><td className="px-3 py-3 text-[10px] text-slate-500">{item.delayNs == null ? 'No timed path' : `${item.delayNs.toFixed(3)} ns`}</td><td className="px-3 py-3 text-[9px]">{item.pareto ? <span className="text-cyan-200">PARETO</span> : <span className="text-slate-600">—</span>}</td><td className="px-5 py-3 text-[10px] text-emerald-300">{item.simulation}</td></tr>)}</tbody>
         </table>
       </div>
       <div className="border-t border-slate-800 px-5 py-3 text-[9px] text-slate-600">Synthesis: {run.toolVersions.yosys}. OpenSTA uses ideal interconnect, a 10 ns virtual clock and zero external I/O delay; this is not signoff timing. Power is not estimated without activity-aware analysis.</div>
+    </section>
+  );
+}
+
+function EdaHistoryPanel({ runs, activeId, onSelect }: { runs: EdaRun[]; activeId?: string; onSelect: (run: EdaRun) => void }) {
+  return (
+    <section className="panel reveal rounded-lg" data-testid="panel-eda-history">
+      <PanelTitle icon={Clock3} eyebrow="EDA / saved history" title="Recent benchmark runs" detail="Saved locally by the API; newest runs appear first." action={<span className="font-mono-ui text-[9px] text-slate-500">{runs.length} / 50</span>} />
+      {runs.length === 0 ? <div className="px-5 py-8 text-center text-[11px] text-slate-500">No saved runs yet. Start an EDA sweep to create the first dataset.</div> : <div className="divide-y divide-slate-800/70">{runs.map((run) => <button key={run.id} onClick={() => onSelect(run)} className={`flex w-full items-center justify-between gap-4 px-5 py-3 text-left hover:bg-slate-800/30 ${run.id === activeId ? 'bg-cyan-300/5' : ''}`}><span className="min-w-0"><span className="block truncate font-mono-ui text-[10px] text-slate-300">{run.id?.slice(0, 8)} · {run.createdAt ? new Date(run.createdAt).toLocaleString() : 'Unknown date'}</span><span className="mt-1 block text-[9px] text-slate-600">{run.results.length} designs · {run.platform}</span></span><span className="shrink-0 text-[10px] text-cyan-200">View run</span></button>)}</div>}
     </section>
   );
 }
@@ -276,8 +286,22 @@ function Home() {
   const [toast, setToast] = useState('');
   const [refreshed, setRefreshed] = useState('no run yet');
   const [edaRun, setEdaRun] = useState<EdaRun | null>(null);
+  const [edaRuns, setEdaRuns] = useState<EdaRun[]>([]);
 
   useEffect(() => { document.title = 'PPA/LAB — RTL design-space exploration'; }, []);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/benchmark/runs')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Could not load saved benchmark runs')))
+      .then((data: { runs: EdaRun[] }) => {
+        if (active && Array.isArray(data.runs)) {
+          setEdaRuns(data.runs);
+          if (data.runs[0]) setEdaRun(data.runs[0]);
+        }
+      })
+      .catch(() => { if (active) setEdaRuns([]); });
+    return () => { active = false; };
+  }, []);
 
   const prediction = useMemo(() => predict(config), [config]);
   const flags = useMemo<ViolationFlag[]>(() => {
@@ -310,6 +334,7 @@ function Home() {
       const result = await response.json();
       if (!response.ok || result.status !== 'complete') throw new Error(result.error ?? `Benchmark failed (${response.status})`);
       setEdaRun(result);
+      setEdaRuns(result.history ?? []);
       setRunId((value) => value + 1);
       setToast(`EDA sweep complete: ${result.results.length} measured designs`);
     } catch (error) {
@@ -337,6 +362,7 @@ function Home() {
           <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]"><ConfigurationPanel config={config} setConfig={setConfig} onReset={() => { setConfig(defaultConfig); setToast('Configuration reset to the reference point'); }} /><div className="min-w-0 space-y-5"><PredictionPanel prediction={prediction} /><FlagsPanel flags={flags} budgets={budgets} setBudgets={setBudgets} /></div></div>
           <div className="mt-5"><CandidateTable candidates={candidates} onApply={loadCandidate} /></div>
           {edaRun && <div className="mt-5"><EdaResultsPanel run={edaRun} /></div>}
+          <div className="mt-5"><EdaHistoryPanel runs={edaRuns} activeId={edaRun?.id} onSelect={setEdaRun} /></div>
           <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]"><ModelPanel /><DatasetPanel refreshed={refreshed} onRefresh={refreshDataset} run={edaRun} /></div>
           <footer className="flex flex-col gap-2 border-t border-slate-800/80 py-6 text-[10px] text-slate-600 sm:flex-row sm:items-center sm:justify-between"><p className="font-mono-ui">PPA/LAB · EDA-BACKED ADDER BENCHMARK</p><p className="flex items-center gap-1.5"><Zap size={11} className="text-amber-300" /> Mapped area and ideal-interconnect path delay; no power or signoff timing.</p></footer>
         </div>
