@@ -1,8 +1,20 @@
 # AI VLSI PPA Optimizer
 
+## Current implementation
+
+The app now runs a reproducible, real synthesis benchmark for adders. Select **Run EDA sweep** to generate and simulate 12 RTL designs: ripple-carry, carry-lookahead, and carry-select adders at 8, 16, 24, and 32 bits. Icarus Verilog checks 128 randomized input vectors per design. Yosys and ABC map each design against the Nangate45 typical Liberty library and report mapped cell area. OpenSTA reports ideal-interconnect maximum combinational delay using a 10 ns virtual clock and zero external input/output delay; this is not signoff timing. Power is not reported because the flow does not perform activity-aware power analysis.
+
+- API: `GET /api/healthz`, `GET /api/benchmark/status`, `POST /api/benchmark/run`.
+- Start the combined frontend/API workflow with `bash scripts/dev-stack.sh`.
+- The Nangate45 Liberty file is downloaded into the ignored `.cache/` directory on first run if it is not already present.
+- Benchmarks currently cover adders only. Results live in the current browser session; there is no persistent run history, trained surrogate model, physical place-and-route, power estimate, or generalized optimizer yet.
+- The old dashboard still contains heuristic preview controls and illustrative candidates. They are labeled as uncalibrated/not measured; only rows in “Synthesis benchmark results” are measured EDA output.
+
+The rest of this README describes the original prototype and research goals, not additional implemented capabilities.
+
 An interactive research prototype for exploring how digital-circuit choices can affect power, energy, area, and timing. The long-term goal is to use fast machine-learning estimates to shortlist promising RTL configurations before spending time on full synthesis and physical-design runs.
 
-## Important status
+## Earlier prototype notes (historical)
 
 The current application is a **front-end demonstrator**, not a working ML-to-EDA optimization pipeline. Its live PPA values come from a deterministic hand-written surrogate formula in the browser. There is no generated RTL, synthesis result, trained model, physical-design report, or measured dataset connected to the dashboard. Treat all displayed predictions, confidence values, model metrics, sample counts, and Pareto labels as illustrative demo content only.
 
