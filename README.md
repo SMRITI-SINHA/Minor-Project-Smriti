@@ -2,14 +2,15 @@
 
 ## Current implementation
 
-The app now runs a reproducible, real synthesis benchmark for adders. Select **Run EDA sweep** to generate and simulate 12 RTL designs: ripple-carry, carry-lookahead, and carry-select adders at 8, 16, 24, and 32 bits. Icarus Verilog checks 128 randomized input vectors per design. Yosys and ABC map each design against the Nangate45 typical Liberty library and report mapped cell area. OpenSTA reports ideal-interconnect maximum combinational delay using a 10 ns virtual clock and zero external input/output delay; this is not signoff timing. Power is not reported because the flow does not perform activity-aware power analysis.
+The app runs a reproducible adder EDA flow. Select **Run full EDA sweep** to generate and simulate 12 RTL designs: ripple-carry, carry-lookahead, and carry-select adders at 8, 16, 24, and 32 bits. Icarus Verilog checks 128 randomized vectors per design. Yosys/ABC maps each design against Nangate45; OpenROAD performs floorplanning, placement, and global routing; OpenSTA reports timing using global-route estimated parasitics. OpenROAD reports cell internal, switching, and leakage power using a vectorless uniform 10% activity / 50% duty-cycle assumption.
 
-- API: `GET /api/healthz`, `GET /api/benchmark/status`, `POST /api/benchmark/run`.
+- API: `GET /api/healthz`, `GET /api/benchmark/status`, `POST /api/benchmark/run`, `GET /api/benchmark/runs`, `GET /api/benchmark/model`, and `POST /api/benchmark/predict`.
 - Start the combined frontend/API workflow with `bash scripts/dev-stack.sh`.
 - The Nangate45 Liberty file is downloaded into the ignored `.cache/` directory on first run if it is not already present.
-- Benchmarks currently cover adders only. The API saves up to 50 runs as local JSON under `.cache/eda/`, which survives page reloads but is not a shared or production database. There is no trained surrogate model, physical place-and-route, power estimate, or generalized optimizer yet.
-- The UI marks the area/delay Pareto set within each bit width; this is a measured, two-objective comparison with idealized timing, not a multi-family or signoff optimization.
-- The old dashboard still contains heuristic preview controls and illustrative candidates. They are labeled as uncalibrated/not measured; only rows in “Synthesis benchmark results” are measured EDA output.
+- Benchmarks cover adder architectures only. The API saves up to 50 runs as local JSON under `.cache/eda/`; this survives page reloads but is not shared or production persistence.
+- The surrogate is ridge regression trained on measured rows, with leave-one-width-out MAE/RMSE/R² and an inference endpoint limited to the measured width range. This small dataset does not establish transfer to other circuit families.
+- The UI computes a three-objective area/routed-delay/power Pareto set within each width. Power is vectorless and routing is global-route only; neither is signoff or foundry-qualified.
+- The flow does not run detailed routing, RC extraction with foundry-qualified process corners, clock-tree synthesis, IR-drop, or signoff timing/power analysis.
 
 The rest of this README describes the original prototype and research goals, not additional implemented capabilities.
 

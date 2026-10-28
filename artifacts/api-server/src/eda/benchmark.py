@@ -12,6 +12,7 @@ from pathlib import Path
 
 LIBERTY = Path(os.environ.get("NANGATE_LIBERTY", Path.cwd() / ".cache/eda/NangateOpenCellLibrary_typical.lib"))
 LIBERTY_URL = "https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/master/flow/platforms/nangate45/lib/NangateOpenCellLibrary_typical.lib"
+PLATFORM_URL = "https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/master/flow/platforms/nangate45/"
 ARCHES = ("Ripple-carry", "Carry-lookahead", "Carry-select")
 WIDTHS = (8, 16, 24, 32)
 
@@ -58,6 +59,65 @@ end endgenerate endmodule"""
     return "\n".join(lines)
 
 
+def prepare_physical_assets():
+    files = {
+        "NangateOpenCellLibrary.tech.lef": "lef/NangateOpenCellLibrary.tech.lef",
+        "NangateOpenCellLibrary.macro.mod.lef": "lef/NangateOpenCellLibrary.macro.mod.lef",
+    }
+    for name, remote in files.items():
+        path = LIBERTY.parent / name
+        if not path.is_file():
+            urllib.request.urlretrieve(PLATFORM_URL + remote, path)
+
+
+def physical_analysis(work, width):
+    core = max(100, width * 4)
+    tcl = [
+        f"read_lef {LIBERTY.parent / 'NangateOpenCellLibrary.tech.lef'}",
+        f"read_lef {LIBERTY.parent / 'NangateOpenCellLibrary.macro.mod.lef'}",
+        f"read_liberty {LIBERTY}",
+        "read_verilog mapped.v", "link_design top", "read_sdc timing.sdc",
+        f"initialize_floorplan -die_area {{0 0 {core + 20} {core + 20}}} -core_area {{10 10 {core + 10} {core + 10}}} -site FreePDK45_38x28_10R_NP_162NW_34O",
+    ]
+    for layer, x_pitch, y_pitch in (
+        ("metal1", ".19", ".14"), ("metal2", ".19", ".14"),
+        ("metal3", ".19", ".14"), ("metal4", ".28", ".28"),
+        ("metal5", ".28", ".28"), ("metal6", ".28", ".28"),
+        ("metal7", ".8", ".8"), ("metal8", ".8", ".8"),
+        ("metal9", "1.6", "1.6"), ("metal10", "1.6", "1.6"),
+    ):
+        tcl.append(f"make_tracks {layer} -x_offset .095 -x_pitch {x_pitch} -y_offset .07 -y_pitch {y_pitch}")
+    tcl.extend([
+        "place_pins -random -hor_layers metal5 -ver_layers metal6",
+        "set_wire_rc -signal -layer metal3", "set_wire_rc -clock -layer metal5",
+        "global_placement -density .30", "detailed_placement",
+        "repair_tie_fanout LOGIC0_X1/Z -separation 0",
+        "repair_tie_fanout LOGIC1_X1/Z -separation 0",
+        "global_route -guide_file route.guide",
+        "estimate_parasitics -global_routing",
+        "set_power_activity -global -activity 0.10 -duty 0.50",
+        "report_power", "report_checks -path_delay max", "exit",
+    ])
+    (work / "physical.tcl").write_text("\n".join(tcl))
+    report = run(["openroad", "-exit", "physical.tcl"], work, timeout=240)
+    arrival = re.search(r"^\s*([0-9]+(?:\.[0-9]+)?)\s+data arrival time\s*$", report, re.M)
+    power = re.search(
+        r"^Total\s+([0-9.eE+-]+)\s+([0-9.eE+-]+)\s+([0-9.eE+-]+)\s+([0-9.eE+-]+)",
+        report, re.M,
+    )
+    if not arrival or not power:
+        raise RuntimeError("OpenROAD completed without routed timing and power reports.")
+    return {
+        "routedDelayNs": float(arrival.group(1)),
+        "internalPowerW": float(power.group(1)),
+        "switchingPowerW": float(power.group(2)),
+        "leakagePowerW": float(power.group(3)),
+        "totalPowerW": float(power.group(4)),
+        "routing": "OpenROAD placement + global route; estimated global-route parasitics",
+        "powerActivity": "uniform 10% switching, 50% duty; vectorless estimate",
+    }
+
+
 def benchmark(architecture, width):
     run_started = time.time()
     with tempfile.TemporaryDirectory(prefix="ppa-") as temp:
@@ -83,6 +143,7 @@ def benchmark(architecture, width):
             "set_input_delay 0 -clock virtual_clk [all_inputs]\n"
             "set_output_delay 0 -clock virtual_clk [all_outputs]\n"
         )
+        physical = physical_analysis(work, width)
         (work / "sta.tcl").write_text(
             f"read_liberty {LIBERTY}\nread_verilog mapped.v\nlink_design top\n"
             "source timing.sdc\nreport_checks -path_delay max\nexit\n"
@@ -94,6 +155,7 @@ def benchmark(architecture, width):
             "architecture": architecture, "bitWidth": width,
             "areaUm2": float(area_match[-1]),
             "delayNs": delay_ns,
+            **physical,
             "mappedCellCount": int(cell_match[-1]) if cell_match else None,
             "simulation": "passed (128 randomized vectors)",
             "synthesis": "Yosys + ABC, Nangate45 typical liberty",
@@ -109,6 +171,7 @@ def main():
         urllib.request.urlretrieve(LIBERTY_URL, LIBERTY)
     if not LIBERTY.is_file():
         raise RuntimeError(f"Liberty file missing: {LIBERTY}")
+    prepare_physical_assets()
     rows = [benchmark(arch, width) for width in WIDTHS for arch in ARCHES]
     for width in WIDTHS:
         width_rows = [row for row in rows if row["bitWidth"] == width]
@@ -118,13 +181,19 @@ def main():
             candidate["pareto"] = not any(
                 other is not candidate
                 and other["areaUm2"] <= candidate["areaUm2"]
-                and other["delayNs"] <= candidate["delayNs"]
-                and (other["areaUm2"] < candidate["areaUm2"] or other["delayNs"] < candidate["delayNs"])
+                and other["routedDelayNs"] <= candidate["routedDelayNs"]
+                and other["totalPowerW"] <= candidate["totalPowerW"]
+                and (
+                    other["areaUm2"] < candidate["areaUm2"]
+                    or other["routedDelayNs"] < candidate["routedDelayNs"]
+                    or other["totalPowerW"] < candidate["totalPowerW"]
+                )
                 for other in width_rows
             )
     print(json.dumps({"status": "complete", "platform": "Nangate45 typical", "toolVersions": {
         "yosys": run(["yosys", "-V"], Path.cwd()).strip(),
         "iverilog": run(["iverilog", "-V"], Path.cwd()).splitlines()[0],
+        "openroad": run(["openroad", "-version"], Path.cwd()).splitlines()[0],
     }, "results": rows}))
 
 

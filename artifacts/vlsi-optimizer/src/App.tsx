@@ -66,6 +66,10 @@ type EdaResult = {
   bitWidth: number;
   areaUm2: number;
   delayNs: number | null;
+  routedDelayNs: number;
+  totalPowerW: number;
+  powerActivity: string;
+  routing: string;
   bestAreaAtWidth?: boolean;
   pareto?: boolean;
   simulation: string;
@@ -73,6 +77,7 @@ type EdaResult = {
   timingSource: string;
 };
 type EdaRun = { id?: string; createdAt?: string; status: string; platform: string; toolVersions: Record<string, string>; results: EdaResult[]; history?: EdaRun[] };
+type ModelReport = { status: string; model?: string; samples?: number; minimumSamples?: number; widthRange?: number[]; validation?: string; metrics?: Record<string, { mae: number | null; rmse: number | null; r2: number | null }>; prediction?: Record<string, number>; predictionLabel?: string };
 
 const defaultConfig: CircuitConfig = {
   family: 'Adder',
@@ -233,11 +238,28 @@ function CandidateTable({ candidates, onApply }: { candidates: Candidate[]; onAp
   );
 }
 
-function ModelPanel() {
+function ModelPanel({ refreshKey }: { refreshKey?: string }) {
+  const [report, setReport] = useState<ModelReport | null>(null);
+  const [architecture, setArchitecture] = useState('Ripple-carry');
+  const [bitWidth, setBitWidth] = useState(16);
+  const [prediction, setPrediction] = useState<ModelReport | null>(null);
+  const [predicting, setPredicting] = useState(false);
+  useEffect(() => { fetch('/api/benchmark/model').then((r) => r.ok ? r.json() : Promise.reject()).then(setReport).catch(() => setReport({ status: 'unavailable' })); }, [refreshKey]);
+  const runPrediction = async () => {
+    setPredicting(true);
+    try {
+      const response = await fetch('/api/benchmark/predict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ architecture, bitWidth }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? 'Prediction failed');
+      setPrediction(data);
+    } catch (error) {
+      setPrediction({ status: 'error', predictionLabel: error instanceof Error ? error.message : 'Prediction failed' });
+    } finally { setPredicting(false); }
+  };
   return (
     <section id="model-bench" className="panel reveal rounded-lg" style={{ animationDelay: '240ms' }} data-testid="panel-models">
-      <PanelTitle icon={LineChart} eyebrow="05 / model comparison" title="Model bench" detail="No training dataset or validation scores are available yet." action={<span className="font-mono-ui text-[9px] text-amber-200">NOT TRAINED</span>} />
-      <div data-testid="status-models-empty" className="flex min-h-[170px] items-center justify-center px-5 text-center text-[11px] text-slate-500">Saved runs are still too limited for reliable model training or validation. No model accuracy claims are shown.</div>
+      <PanelTitle icon={LineChart} eyebrow="05 / measured-data model" title="Surrogate validation" detail={report?.model ?? 'Training on saved synthesis and routed measurements…'} action={<span className="font-mono-ui text-[9px] text-cyan-200">{report?.status === 'trained' ? 'TRAINED' : 'NEEDS DATA'}</span>} />
+      {report?.status === 'trained' && report.metrics ? <div className="p-5"><p className="mb-4 text-[10px] text-slate-500">{report.samples} measured rows · width range {report.widthRange?.join('–')} bits · {report.validation}</p><div className="grid grid-cols-3 gap-3">{Object.entries(report.metrics).map(([name, metric]) => <div key={name} className="rounded border border-slate-800 p-3"><p className="font-mono-ui text-[9px] text-slate-500">{name}</p><p className="mt-2 text-[10px] text-slate-300">MAE {metric.mae?.toPrecision(3) ?? '—'}</p><p className="mt-1 text-[10px] text-slate-500">RMSE {metric.rmse?.toPrecision(3) ?? '—'} · R² {metric.r2?.toFixed(3) ?? '—'}</p></div>)}</div><div className="mt-5 flex flex-wrap items-end gap-3"><label className="text-[9px] text-slate-500">Architecture<select className="select-console mt-1 block text-[10px]" value={architecture} onChange={(e) => { setArchitecture(e.target.value); setPrediction(null); }}>{['Ripple-carry', 'Carry-lookahead', 'Carry-select'].map((item) => <option key={item}>{item}</option>)}</select></label><label className="text-[9px] text-slate-500">Width<select className="select-console mt-1 block text-[10px]" value={bitWidth} onChange={(e) => { setBitWidth(Number(e.target.value)); setPrediction(null); }}>{[8, 16, 24, 32].map((width) => <option key={width}>{width}</option>)}</select></label><button onClick={runPrediction} disabled={predicting} className="button-console rounded bg-cyan-300 px-3 py-2 text-[10px] font-semibold text-slate-950 disabled:opacity-50">{predicting ? 'Estimating…' : 'Estimate with model'}</button></div>{prediction?.prediction && <p className="mt-3 font-mono-ui text-[10px] text-cyan-100">Estimated area {prediction.prediction.areaUm2?.toFixed(2)} µm² · routed delay {prediction.prediction.routedDelayNs?.toFixed(3)} ns · total power {(prediction.prediction.totalPowerW! * 1000).toPrecision(3)} mW</p>}{prediction && !prediction.prediction && <p className="mt-3 text-[10px] text-red-200">{prediction.predictionLabel}</p>}<p className="mt-4 text-[9px] text-amber-200">Small adder-only dataset; width-held-out validation does not demonstrate transfer to other circuit families. Estimates are not EDA measurements.</p></div> : <div data-testid="status-models-empty" className="flex min-h-[120px] items-center justify-center px-5 text-center text-[11px] text-slate-500">{report?.status === 'insufficient-data' ? `Need at least ${report.minimumSamples ?? 10} valid measured rows across 3 widths.` : report?.status === 'unavailable' ? 'Model report unavailable. Run an EDA sweep and retry.' : 'Waiting for measured EDA data.'}</div>}
     </section>
   );
 }
@@ -246,7 +268,7 @@ function DatasetPanel({ refreshed, onRefresh, run }: { refreshed: string; onRefr
   return (
     <section id="dataset" className="panel reveal rounded-lg" style={{ animationDelay: '300ms' }} data-testid="panel-dataset">
       <PanelTitle icon={Database} eyebrow="06 / training substrate" title="Dataset health" detail="Versioned samples available to the inference layer." action={<button data-testid="button-refresh-dataset" onClick={onRefresh} className="button-console rounded border border-slate-700 p-1.5 text-slate-500 hover:border-slate-500 hover:text-slate-200"><RotateCcw size={13} /></button>} />
-      <div className="grid grid-cols-2 gap-x-5 gap-y-4 p-5 sm:grid-cols-4"><div><p className="text-[9px] uppercase tracking-wider text-slate-600">Current run samples</p><p data-testid="text-dataset-samples" className="metric-value mt-1 text-lg text-slate-200">{run?.results.length ?? 0}</p></div><div><p className="text-[9px] uppercase tracking-wider text-slate-600">Families</p><p className="metric-value mt-1 text-lg text-slate-200">{run ? '1' : '0'}</p></div><div><p className="text-[9px] uppercase tracking-wider text-slate-600">Model training</p><p className="metric-value mt-1 text-sm text-amber-200">Not available</p></div><div><p className="text-[9px] uppercase tracking-wider text-slate-600">Last refresh</p><p data-testid="text-dataset-refresh" className="metric-value mt-1 text-sm text-cyan-200">{run ? 'just now' : refreshed}</p></div></div>
+      <div className="grid grid-cols-2 gap-x-5 gap-y-4 p-5 sm:grid-cols-4"><div><p className="text-[9px] uppercase tracking-wider text-slate-600">Current run samples</p><p data-testid="text-dataset-samples" className="metric-value mt-1 text-lg text-slate-200">{run?.results.length ?? 0}</p></div><div><p className="text-[9px] uppercase tracking-wider text-slate-600">Families</p><p className="metric-value mt-1 text-lg text-slate-200">{run ? '1' : '0'}</p></div><div><p className="text-[9px] uppercase tracking-wider text-slate-600">Model training</p><p className="metric-value mt-1 text-sm text-cyan-200">Measured rows</p></div><div><p className="text-[9px] uppercase tracking-wider text-slate-600">Last refresh</p><p data-testid="text-dataset-refresh" className="metric-value mt-1 text-sm text-cyan-200">{run ? 'just now' : refreshed}</p></div></div>
     </section>
   );
 }
@@ -256,12 +278,12 @@ function EdaResultsPanel({ run }: { run: EdaRun }) {
     <section className="panel reveal rounded-lg" data-testid="panel-eda-results">
       <PanelTitle icon={Cpu} eyebrow="EDA / measured run" title="Synthesis benchmark results" detail={`${run.platform} · ${run.results.length} RTL points · functional simulation passed`} action={<span className="font-mono-ui text-[9px] text-emerald-300">REAL TOOL OUTPUT</span>} />
       <div className="mobile-scroll">
-        <table className="w-full min-w-[600px] text-left">
-          <thead><tr className="border-b border-slate-800 text-[9px] uppercase tracking-wider text-slate-600"><th className="px-5 py-3">Architecture</th><th className="px-3 py-3">Width</th><th className="px-3 py-3">Mapped area</th><th className="px-3 py-3">Max path</th><th className="px-3 py-3">Frontier</th><th className="px-5 py-3">Simulation</th></tr></thead>
-          <tbody>{run.results.map((item) => <tr key={`${item.architecture}-${item.bitWidth}`} className="border-b border-slate-800/70 last:border-0"><td className="px-5 py-3 text-[11px] text-slate-300">{item.architecture}{item.bestAreaAtWidth && <span className="ml-2 rounded bg-emerald-300/10 px-1.5 py-0.5 font-mono-ui text-[8px] text-emerald-300">LOWEST AREA</span>}</td><td className="px-3 py-3 font-mono-ui text-[11px]">{item.bitWidth} bit</td><td className="px-3 py-3 font-mono-ui text-[11px] text-violet-200">{item.areaUm2.toFixed(3)} µm²</td><td className="px-3 py-3 text-[10px] text-slate-500">{item.delayNs == null ? 'No timed path' : `${item.delayNs.toFixed(3)} ns`}</td><td className="px-3 py-3 text-[9px]">{item.pareto ? <span className="text-cyan-200">PARETO</span> : <span className="text-slate-600">—</span>}</td><td className="px-5 py-3 text-[10px] text-emerald-300">{item.simulation}</td></tr>)}</tbody>
+        <table className="w-full min-w-[780px] text-left">
+          <thead><tr className="border-b border-slate-800 text-[9px] uppercase tracking-wider text-slate-600"><th className="px-5 py-3">Architecture</th><th className="px-3 py-3">Width</th><th className="px-3 py-3">Mapped area</th><th className="px-3 py-3">Routed delay</th><th className="px-3 py-3">Power (mW)</th><th className="px-3 py-3">3D frontier</th><th className="px-5 py-3">Simulation</th></tr></thead>
+          <tbody>{run.results.map((item) => <tr key={`${item.architecture}-${item.bitWidth}`} className="border-b border-slate-800/70 last:border-0"><td className="px-5 py-3 text-[11px] text-slate-300">{item.architecture}{item.bestAreaAtWidth && <span className="ml-2 rounded bg-emerald-300/10 px-1.5 py-0.5 font-mono-ui text-[8px] text-emerald-300">LOWEST AREA</span>}</td><td className="px-3 py-3 font-mono-ui text-[11px]">{item.bitWidth} bit</td><td className="px-3 py-3 font-mono-ui text-[11px] text-violet-200">{item.areaUm2.toFixed(3)} µm²</td><td className="px-3 py-3 text-[10px] text-slate-300">{item.routedDelayNs.toFixed(3)} ns</td><td className="px-3 py-3 text-[10px] text-cyan-200">{(item.totalPowerW * 1000).toPrecision(3)}</td><td className="px-3 py-3 text-[9px]">{item.pareto ? <span className="text-cyan-200">PARETO</span> : <span className="text-slate-600">—</span>}</td><td className="px-5 py-3 text-[10px] text-emerald-300">{item.simulation}</td></tr>)}</tbody>
         </table>
       </div>
-      <div className="border-t border-slate-800 px-5 py-3 text-[9px] text-slate-600">Synthesis: {run.toolVersions.yosys}. OpenSTA uses ideal interconnect, a 10 ns virtual clock and zero external I/O delay; this is not signoff timing. Power is not estimated without activity-aware analysis.</div>
+      <div className="border-t border-slate-800 px-5 py-3 text-[9px] text-slate-600">Synthesis: {run.toolVersions.yosys} · Physical: {run.toolVersions.openroad}. Power is vectorless at 10% toggle/50% duty; routed delay uses estimated parasitics and is not signoff.</div>
     </section>
   );
 }
@@ -358,13 +380,12 @@ function Home() {
           <div className="flex items-center gap-2"><button data-testid="button-help" onClick={() => setToast('Help: adjust constraints, then run a local sweep')} className="button-console rounded border border-transparent p-2 text-slate-500 hover:border-slate-700 hover:text-slate-300"><CircleHelp size={16} /></button><button data-testid="button-notifications" onClick={() => setToast('No new reviewer annotations')} className="button-console relative rounded border border-transparent p-2 text-slate-500 hover:border-slate-700 hover:text-slate-300"><Bell size={16} /><span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-300" /></button><button data-testid="button-settings" onClick={() => setToast('Workspace settings are fixed for this local demo')} className="button-console rounded border border-transparent p-2 text-slate-500 hover:border-slate-700 hover:text-slate-300"><Settings2 size={16} /></button></div>
         </header>
         <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-7 sm:py-8">
-          <div className="mb-7 flex flex-col justify-between gap-5 xl:flex-row xl:items-end"><div><SectionLabel>Research instrument / EDA benchmark</SectionLabel><h1 data-testid="text-page-title" className="mt-2 max-w-3xl text-2xl font-semibold tracking-tight text-slate-100 sm:text-3xl">Measure adder designs with <span className="text-cyan-300">real synthesis.</span></h1><p className="mt-2 max-w-2xl text-xs leading-relaxed text-slate-500 sm:text-sm">Run functional simulation and library-mapped synthesis across three RTL structures and four widths. Compare mapped area and ideal-interconnect delay; power is not claimed.</p></div><div className="flex items-center gap-3"><div className="hidden items-center gap-2 rounded border border-slate-800 bg-slate-900/50 px-3 py-2 sm:flex"><Clock3 size={14} className="text-slate-500" /><span className="font-mono-ui text-[10px] text-slate-400">SWEEP <span className="text-slate-200">12 designs</span></span></div><button data-testid="button-optimize" onClick={optimize} disabled={optimizing} className="button-console signal flex items-center gap-2 rounded-md bg-cyan-300 px-4 py-2.5 text-xs font-bold text-[#0b1219] disabled:cursor-wait disabled:opacity-70">{optimizing ? <Activity size={15} className="animate-pulse" /> : <Sparkles size={15} />}{optimizing ? 'Running EDA…' : 'Run EDA sweep'}<ChevronRight size={14} /></button></div></div>
-          <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]"><ConfigurationPanel config={config} setConfig={setConfig} onReset={() => { setConfig(defaultConfig); setToast('Configuration reset to the reference point'); }} /><div className="min-w-0 space-y-5"><PredictionPanel prediction={prediction} /><FlagsPanel flags={flags} budgets={budgets} setBudgets={setBudgets} /></div></div>
-          <div className="mt-5"><CandidateTable candidates={candidates} onApply={loadCandidate} /></div>
+          <div id="overview" className="mb-7 flex flex-col justify-between gap-5 xl:flex-row xl:items-end"><div><SectionLabel>OpenROAD / EDA benchmark</SectionLabel><h1 data-testid="text-page-title" className="mt-2 max-w-3xl text-2xl font-semibold tracking-tight text-slate-100 sm:text-3xl">Measure adder designs with <span className="text-cyan-300">routed EDA.</span></h1><p className="mt-2 max-w-2xl text-xs leading-relaxed text-slate-500 sm:text-sm">Simulate, synthesize, place, route, estimate routed delay and vectorless power across three adder architectures and four widths. Results are exploratory, not signoff.</p></div><div className="flex items-center gap-3"><div className="hidden items-center gap-2 rounded border border-slate-800 bg-slate-900/50 px-3 py-2 sm:flex"><Clock3 size={14} className="text-slate-500" /><span className="font-mono-ui text-[10px] text-slate-400">SWEEP <span className="text-slate-200">12 designs</span></span></div><button data-testid="button-optimize" onClick={optimize} disabled={optimizing} className="button-console signal flex items-center gap-2 rounded-md bg-cyan-300 px-4 py-2.5 text-xs font-bold text-[#0b1219] disabled:cursor-wait disabled:opacity-70">{optimizing ? <Activity size={15} className="animate-pulse" /> : <Sparkles size={15} />}{optimizing ? 'Running full EDA…' : 'Run full EDA sweep'}<ChevronRight size={14} /></button></div></div>
+          <div className="mb-5 rounded border border-slate-800 bg-slate-900/40 p-4 text-[10px] leading-relaxed text-slate-500">Flow: 128 randomized correctness vectors per design → Yosys/ABC Nangate45 mapping → OpenROAD placement and detailed routing → estimated parasitics, timing and vectorless power. The fitted model uses only saved measured adder rows.</div>
           {edaRun && <div className="mt-5"><EdaResultsPanel run={edaRun} /></div>}
           <div className="mt-5"><EdaHistoryPanel runs={edaRuns} activeId={edaRun?.id} onSelect={setEdaRun} /></div>
-          <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]"><ModelPanel /><DatasetPanel refreshed={refreshed} onRefresh={refreshDataset} run={edaRun} /></div>
-          <footer className="flex flex-col gap-2 border-t border-slate-800/80 py-6 text-[10px] text-slate-600 sm:flex-row sm:items-center sm:justify-between"><p className="font-mono-ui">PPA/LAB · EDA-BACKED ADDER BENCHMARK</p><p className="flex items-center gap-1.5"><Zap size={11} className="text-amber-300" /> Mapped area and ideal-interconnect path delay; no power or signoff timing.</p></footer>
+          <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]"><ModelPanel refreshKey={edaRun?.id} /><DatasetPanel refreshed={refreshed} onRefresh={refreshDataset} run={edaRun} /></div>
+          <footer className="flex flex-col gap-2 border-t border-slate-800/80 py-6 text-[10px] text-slate-600 sm:flex-row sm:items-center sm:justify-between"><p className="font-mono-ui">PPA/LAB · MEASURED ADDER FLOW</p><p className="flex items-center gap-1.5"><Zap size={11} className="text-amber-300" /> Vectorless power and estimated routed timing; no signoff claim.</p></footer>
         </div>
       </main>
       {toast && <div data-testid="status-toast" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-md border border-cyan-300/20 bg-[#111d29] px-4 py-3 shadow-xl shadow-black/30"><Check size={14} className="text-cyan-300" /><span className="text-[11px] text-slate-300">{toast}</span><button data-testid="button-dismiss-toast" onClick={() => setToast('')} className="ml-2 text-slate-600 hover:text-slate-300"><X size={13} /></button></div>}
