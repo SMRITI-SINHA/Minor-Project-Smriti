@@ -7,7 +7,7 @@ The app runs a reproducible adder EDA flow. Select **Run full EDA sweep** to gen
 - API: `GET /api/healthz`, `GET /api/benchmark/status`, `POST /api/benchmark/run`, `GET /api/benchmark/runs`, `GET /api/benchmark/model`, and `POST /api/benchmark/predict`.
 - Start the combined frontend/API workflow with `bash scripts/dev-stack.sh`.
 - The Nangate45 Liberty file is downloaded into the ignored `.cache/` directory on first run if it is not already present.
-- Benchmarks cover adder architectures only. The API saves up to 50 runs as local JSON under `.cache/eda/`; this survives page reloads but is not shared or production persistence.
+- Benchmarks cover adder architectures only. The API saves up to 50 runs in the workspace PostgreSQL database, shared across app sessions. Replit's Publish flow applies schema changes to production after merge.
 - The surrogate is ridge regression trained on measured rows, with leave-one-width-out MAE/RMSE/R² and an inference endpoint limited to the measured width range. This small dataset does not establish transfer to other circuit families.
 - The UI computes a three-objective area/routed-delay/power Pareto set within each width. Power is vectorless and routing is global-route only; neither is signoff or foundry-qualified.
 - The flow does not run detailed routing, RC extraction with foundry-qualified process corners, clock-tree synthesis, IR-drop, or signoff timing/power analysis.

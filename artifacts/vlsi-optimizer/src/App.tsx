@@ -291,7 +291,7 @@ function EdaResultsPanel({ run }: { run: EdaRun }) {
 function EdaHistoryPanel({ runs, activeId, onSelect }: { runs: EdaRun[]; activeId?: string; onSelect: (run: EdaRun) => void }) {
   return (
     <section className="panel reveal rounded-lg" data-testid="panel-eda-history">
-      <PanelTitle icon={Clock3} eyebrow="EDA / saved history" title="Recent benchmark runs" detail="Saved locally by the API; newest runs appear first." action={<span className="font-mono-ui text-[9px] text-slate-500">{runs.length} / 50</span>} />
+      <PanelTitle icon={Clock3} eyebrow="EDA / saved history" title="Recent benchmark runs" detail="Stored in the shared workspace database; newest runs appear first." action={<span className="font-mono-ui text-[9px] text-slate-500">{runs.length} / 50</span>} />
       {runs.length === 0 ? <div className="px-5 py-8 text-center text-[11px] text-slate-500">No saved runs yet. Start an EDA sweep to create the first dataset.</div> : <div className="divide-y divide-slate-800/70">{runs.map((run) => <button key={run.id} onClick={() => onSelect(run)} className={`flex w-full items-center justify-between gap-4 px-5 py-3 text-left hover:bg-slate-800/30 ${run.id === activeId ? 'bg-cyan-300/5' : ''}`}><span className="min-w-0"><span className="block truncate font-mono-ui text-[10px] text-slate-300">{run.id?.slice(0, 8)} · {run.createdAt ? new Date(run.createdAt).toLocaleString() : 'Unknown date'}</span><span className="mt-1 block text-[9px] text-slate-600">{run.results.length} designs · {run.platform}</span></span><span className="shrink-0 text-[10px] text-cyan-200">View run</span></button>)}</div>}
     </section>
   );
