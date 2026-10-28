@@ -1,8 +1,22 @@
 # AI VLSI PPA Optimizer
 
+## Current implementation
+
+The app runs a reproducible adder EDA flow. Select **Run full EDA sweep** to generate and simulate 12 RTL designs: ripple-carry, carry-lookahead, and carry-select adders at 8, 16, 24, and 32 bits. Icarus Verilog checks 128 randomized vectors per design. Yosys/ABC maps each design against Nangate45; OpenROAD performs floorplanning, placement, and global routing; OpenSTA reports timing using global-route estimated parasitics. OpenROAD reports cell internal, switching, and leakage power using a vectorless uniform 10% activity / 50% duty-cycle assumption.
+
+- API: `GET /api/healthz`, `GET /api/benchmark/status`, `POST /api/benchmark/run`, `GET /api/benchmark/runs`, `GET /api/benchmark/model`, and `POST /api/benchmark/predict`.
+- Start the combined frontend/API workflow with `bash scripts/dev-stack.sh`.
+- The Nangate45 Liberty file is downloaded into the ignored `.cache/` directory on first run if it is not already present.
+- Benchmarks cover adder architectures only. The API saves up to 50 runs as local JSON under `.cache/eda/`; this survives page reloads but is not shared or production persistence.
+- The surrogate is ridge regression trained on measured rows, with leave-one-width-out MAE/RMSE/R² and an inference endpoint limited to the measured width range. This small dataset does not establish transfer to other circuit families.
+- The UI computes a three-objective area/routed-delay/power Pareto set within each width. Power is vectorless and routing is global-route only; neither is signoff or foundry-qualified.
+- The flow does not run detailed routing, RC extraction with foundry-qualified process corners, clock-tree synthesis, IR-drop, or signoff timing/power analysis.
+
+The rest of this README describes the original prototype and research goals, not additional implemented capabilities.
+
 An interactive research prototype for exploring how digital-circuit choices can affect power, energy, area, and timing. The long-term goal is to use fast machine-learning estimates to shortlist promising RTL configurations before spending time on full synthesis and physical-design runs.
 
-## Important status
+## Earlier prototype notes (historical)
 
 The current application is a **front-end demonstrator**, not a working ML-to-EDA optimization pipeline. Its live PPA values come from a deterministic hand-written surrogate formula in the browser. There is no generated RTL, synthesis result, trained model, physical-design report, or measured dataset connected to the dashboard. Treat all displayed predictions, confidence values, model metrics, sample counts, and Pareto labels as illustrative demo content only.
 
