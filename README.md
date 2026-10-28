@@ -7,7 +7,7 @@ The app runs a reproducible adder EDA flow. Select **Run full EDA sweep** to gen
 - API: `GET /api/healthz`, `GET /api/benchmark/status`, `POST /api/benchmark/run`, `GET /api/benchmark/runs`, `GET /api/benchmark/model`, and `POST /api/benchmark/predict`.
 - Start the combined frontend/API workflow with `bash scripts/dev-stack.sh`.
 - The Nangate45 Liberty file is downloaded into the ignored `.cache/` directory on first run if it is not already present.
-- Benchmarks cover adder architectures only. The API saves up to 50 runs as local JSON under `.cache/eda/`; this survives page reloads but is not shared or production persistence.
+- Benchmarks cover adder architectures only. The API saves up to 50 runs in the workspace PostgreSQL database, shared across app sessions. Replit's Publish flow applies schema changes to production after merge.
 - The surrogate is ridge regression trained on measured rows, with leave-one-width-out MAE/RMSE/R² and an inference endpoint limited to the measured width range. This small dataset does not establish transfer to other circuit families.
 - The UI computes a three-objective area/routed-delay/power Pareto set within each width. Power is vectorless and routing is global-route only; neither is signoff or foundry-qualified.
 - The flow does not run detailed routing, RC extraction with foundry-qualified process corners, clock-tree synthesis, IR-drop, or signoff timing/power analysis.
@@ -142,63 +142,60 @@ The synopsis estimates a dataset on the order of 500–2,000 configurations. Tha
 ## Short viva / presentation answers
 
 **What problem does the project address?**  
-Each RTL architecture and parameter choice can require a separate synthesis and timing run. The proposed system uses measurements from a limited set of real EDA runs to estimate likely results for other configurations, then sends a smaller set of promising choices to EDA for verification.
+Each RTL architecture and width can require separate EDA runs. PPA/LAB provides a reproducible adder design-space benchmark, then trains a small surrogate on its measured results to estimate configurations within the tested space.
 
 **Does the current application use AI or trained ML models?**  
-Not yet. The current UI labels six model families, but the prediction comes from one deterministic equation. There are no trained weights, training code, feature extraction, or model-serving calls in this repository. Real EDA data and reproducible validation are prerequisites.
+Yes. It fits ridge regression using saved EDA measurements for adder width and architecture, reports leave-one-width-out MAE/RMSE/R², and offers a prediction endpoint. This is a small experimental model, not evidence of generalization to other circuit families.
 
 **Why not let a prediction replace synthesis?**  
-A learned estimate is approximate and may be unreliable for a design family or technology it has not seen. Synthesis, timing analysis, and physical-design runs remain the source of verified measurements; a surrogate is intended to reduce how many configurations need those expensive runs.
+A learned estimate is approximate and may be unreliable outside its training data. The EDA sweep remains the measurement source; the surrogate is for exploration, not signoff.
 
 **What is PPA, and how is performance represented here?**  
-PPA means power, performance, and area. This UI displays power, energy per operation, area, delay, and WNS; delay and WNS are its timing indicators. All values are currently illustrative.
+PPA means power, performance, and area. The benchmark reports mapped standard-cell area, OpenROAD global-route estimated delay, and vectorless power in Nangate45.
 
 **What does WNS mean?**  
-Worst Negative Slack is the most timing-critical slack reported across timing paths in static timing analysis. Negative slack indicates a timing constraint is missed. The demo simplifies it to `clockPeriod - estimatedDelay`; that is not an OpenSTA calculation.
+Worst Negative Slack is the most timing-critical slack across constrained timing paths. This benchmark does not claim signoff WNS: it reports combinational path delay using a virtual clock and zero external I/O delays.
 
 **What does Pareto-optimal mean?**  
-For objectives such as minimizing power, area, and delay while meeting a WNS target, a point is Pareto-optimal if no other feasible point is at least as good in every objective and strictly better in one. The current UI does not compute this relation; it marks three candidate rows by fixed index.
+Within each width, a point is marked Pareto-optimal when no other measured architecture is at least as good in area, estimated routed delay, and vectorless power, and strictly better in one.
 
-**Why evaluate by holding out whole design families?**  
-Rows from one circuit family can be very similar. A random row split may put near-duplicates in training and testing, making generalization look better than it is. Holding out a family tests whether the model transfers to a genuinely different design structure.
+**How is the model validated?**
+
+The benchmark holds out each complete bit width in turn. That tests interpolation across tested adder widths, but not transfer to a new circuit family or technology.
 
 **How should activity relate to power?**  
-Dynamic power is often approximated as proportional to switching activity, capacitance, voltage squared, and frequency (`P ≈ α C V² f`). The dashboard uses a simple activity multiplier but has no real cell capacitance, voltage, netlist, or activity trace, so it is not a physical power estimate.
+Dynamic power depends on activity, capacitance, voltage, and frequency (`P ≈ α C V² f`). The benchmark uses OpenROAD's vectorless estimate with uniform 10% activity and 50% duty cycle. It does not use a gate-level activity trace, so the number is not signoff power.
 
 **What is the current project deliverable?**  
-A polished interactive frontend prototype, plus an API health endpoint and monorepo scaffolding. It demonstrates the intended interaction flow and communicates which configurations might be worth investigating; it does not yet demonstrate measured optimization results.
+An interactive, adder-focused EDA workflow: randomized functional checks, Yosys/ABC mapping, OpenROAD placement and global routing, timing/power estimates, PostgreSQL-backed run history, three-objective Pareto comparison, and a measured-data ridge-regression surrogate.
 
 **What is required before claiming that the optimizer works?**  
-Generate functionally checked RTL variants, run EDA, preserve the measured outputs and provenance, train models on those records, evaluate on held-out circuit families, compute real feasible Pareto candidates, and verify selected candidates with EDA again.
+The current prototype demonstrates this loop only for three adder architectures at four widths. Broader circuit families, detailed routing, extracted process-corner parasitics, and signoff-quality timing/power remain necessary before claiming a general-purpose optimizer.
 
 ## Feasibility assumptions from the synopsis
 
 The synopsis suggests at least a 4-core CPU, 8 cores preferred for parallel runs, 16 GB RAM for larger physical-design experiments, and about 50 GB storage for tools and reports. A CUDA GPU is optional because the proposed models are small and use tabular features. These are planning estimates, not benchmarked requirements from the current application.
 
-## Recommended next work
+## Remaining scope
 
-1. **Build a small reproducible RTL benchmark first.** Start with the synopsis's 8-bit and 16-bit ripple-carry, carry-lookahead, and carry-select adders. Add simulation tests so generated variants are functionally equivalent.
-2. **Produce measured training data.** Implement RTL generation, Yosys synthesis, timing constraints and OpenSTA report parsing; record units, tool versions, technology library, and failures. Restrict the first milestone to synthesis-level metrics if full physical design is too slow.
-3. **Add data and run persistence.** Define database tables for configuration, tool run, measurements, model version, and raw-report location. Add API endpoints for starting, checking, listing, and retrieving runs.
-4. **Train and validate models against measurements.** Use a family-wise holdout split, report MAE/RMSE/R² per metric with units, compare inference time, and include error calibration before showing confidence.
-5. **Implement real constrained search.** Define metric directions and budget behavior; calculate Pareto dominance instead of setting frontier flags by row index; verify selected candidates through EDA.
-6. **Close the evidence loop in the UI.** Clearly distinguish predicted versus measured results, add prediction provenance and failure states, and plot real trade-offs and model errors.
-7. **Add automated tests.** Cover feature extraction, unit conversions, report parsing, budget boundaries, candidate search, and prediction-vs-measurement evaluation.
+1. Detailed routing currently fails on a ground-typed tie net in one generated architecture. Results therefore stop at global routing and estimated parasitics.
+2. Expand RTL generation and functional tests beyond adders, then collect enough measured rows for meaningful family-held-out model validation.
+3. Power uses vectorless activity assumptions; add trace-based activity and process-corner characterization before signoff claims.
 
 ## Presentation accuracy check
 
-The attached progress presentation describes several backend, PostgreSQL, RTL-generation, and synthesis-adapter pieces as established. Those pieces are **not present in the current source tree**: the API has only a health route, the database schema has no tables, and no RTL/EDA integration is connected. Update those slides or clearly label them as planned before presenting the current repository as evidence of completed work.
+Present the current deliverable as an adder-focused EDA prototype, not a production signoff tool or general-purpose multi-family optimizer. Separate measured, model-estimated, and vectorless metrics when showing results.
 
 ## Running locally
 
-Requirements: Node.js 20 or newer and pnpm.
+Requirements: Node.js 20 or newer, pnpm, PostgreSQL, Yosys, Icarus Verilog, OpenSTA, and OpenROAD.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter @workspace/vlsi-optimizer run dev
+bash scripts/dev-stack.sh
 ```
 
-Vite defaults to port 5173 and the root URL when `PORT` and `BASE_PATH` are not supplied. To run the separate health API, set `PORT` and start `@workspace/api-server`; no database is needed for the current health endpoint.
+The combined workflow starts the Vite UI and API. The API reads `DATABASE_URL`; apply schema changes with `pnpm --filter @workspace/db run push` in development. Replit's Publish flow applies the development schema to production when publishing.
 
 Useful checks:
 

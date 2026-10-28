@@ -2,23 +2,21 @@ import { Router, type IRouter } from "express";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { desc, inArray } from "drizzle-orm";
+import { db, edaRunsTable } from "@workspace/db";
 
 const router: IRouter = Router();
 const execFileAsync = promisify(execFile);
 const root = process.cwd();
-const historyPath = path.join(root, ".cache/eda/runs.json");
 let runInProgress = false;
 
 async function getRunHistory() {
-  try {
-    return JSON.parse(await readFile(historyPath, "utf8")) as Array<Record<string, unknown>>;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
+  const rows = await db.select().from(edaRunsTable)
+    .orderBy(desc(edaRunsTable.createdAt))
+    .limit(50);
+  return rows.map((row) => row.payload as Record<string, unknown>);
 }
 
 router.get("/benchmark/runs", async (_req, res) => {
@@ -96,12 +94,20 @@ router.post("/benchmark/run", async (_req, res) => {
     const result = JSON.parse(stdout) as Record<string, unknown>;
     result.id = randomUUID();
     result.createdAt = new Date().toISOString();
-    const prior = await getRunHistory();
-    const history = [result, ...prior].slice(0, 50);
-    await mkdir(path.dirname(historyPath), { recursive: true });
-    const temporaryPath = `${historyPath}.tmp`;
-    await writeFile(temporaryPath, JSON.stringify(history, null, 2), "utf8");
-    await rename(temporaryPath, historyPath);
+    await db.insert(edaRunsTable).values({
+      id: result.id as string,
+      createdAt: new Date(result.createdAt as string),
+      platform: result.platform as string,
+      payload: result,
+    });
+    const expired = await db.select({ id: edaRunsTable.id })
+      .from(edaRunsTable)
+      .orderBy(desc(edaRunsTable.createdAt))
+      .offset(50);
+    if (expired.length) {
+      await db.delete(edaRunsTable).where(inArray(edaRunsTable.id, expired.map((row) => row.id)));
+    }
+    const history = await getRunHistory();
     result.history = history.map((run) => ({ ...run, history: undefined }));
     res.json(result);
   } catch (error) {
