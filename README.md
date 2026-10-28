@@ -159,7 +159,8 @@ Worst Negative Slack is the most timing-critical slack across constrained timing
 **What does Pareto-optimal mean?**  
 Within each width, a point is marked Pareto-optimal when no other measured architecture is at least as good in area, estimated routed delay, and vectorless power, and strictly better in one.
 
-**How is the model validated?**  
+**How is the model validated?**
+
 The benchmark holds out each complete bit width in turn. That tests interpolation across tested adder widths, but not transfer to a new circuit family or technology.
 
 **How should activity relate to power?**  

@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { desc } from "drizzle-orm";
+import { desc, inArray } from "drizzle-orm";
 import { db, edaRunsTable } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -100,6 +100,13 @@ router.post("/benchmark/run", async (_req, res) => {
       platform: result.platform as string,
       payload: result,
     });
+    const expired = await db.select({ id: edaRunsTable.id })
+      .from(edaRunsTable)
+      .orderBy(desc(edaRunsTable.createdAt))
+      .offset(50);
+    if (expired.length) {
+      await db.delete(edaRunsTable).where(inArray(edaRunsTable.id, expired.map((row) => row.id)));
+    }
     const history = await getRunHistory();
     result.history = history.map((run) => ({ ...run, history: undefined }));
     res.json(result);
