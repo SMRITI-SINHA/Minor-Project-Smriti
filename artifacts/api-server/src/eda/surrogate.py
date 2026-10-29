@@ -73,17 +73,21 @@ def score(rows, target):
 
 
 def train(rows, design=None):
-    rows = [
-        row for row in rows
-        if row.get("architecture") in ARCHES
-        and all(isinstance(row.get(target), (int, float)) for target in TARGETS)
-    ]
+    unique_rows = {}
+    for row in rows:
+        if (
+            row.get("architecture") in ARCHES
+            and all(isinstance(row.get(target), (int, float)) for target in TARGETS)
+        ):
+            unique_rows[(row["architecture"], row["bitWidth"])] = row
+    rows = list(unique_rows.values())
     if len(rows) < 10 or len({row["bitWidth"] for row in rows}) < 3:
         return {"status": "insufficient-data", "samples": len(rows), "minimumSamples": 10}
     result = {
         "status": "trained",
         "model": "ridge regression (width polynomial + architecture indicators)",
         "samples": len(rows),
+        "uniqueDesigns": len(rows),
         "architectures": sorted({row["architecture"] for row in rows}),
         "widthRange": [min(row["bitWidth"] for row in rows), max(row["bitWidth"] for row in rows)],
         "validation": "Grouped holdout by bit width; interpolation within measured adder architectures only.",

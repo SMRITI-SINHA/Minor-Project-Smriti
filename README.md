@@ -2,15 +2,15 @@
 
 ## Current implementation
 
-The app runs a reproducible adder EDA flow. Select **Run full EDA sweep** to generate and simulate 12 RTL designs: ripple-carry, carry-lookahead, and carry-select adders at 8, 16, 24, and 32 bits. Icarus Verilog checks 128 randomized vectors per design. Yosys/ABC maps each design against Nangate45; OpenROAD performs floorplanning, placement, and global routing; OpenSTA reports timing using global-route estimated parasitics. OpenROAD reports cell internal, switching, and leakage power using a vectorless uniform 10% activity / 50% duty-cycle assumption.
+The app runs a reproducible adder EDA flow. Select **Run full EDA sweep** to generate and simulate 12 RTL designs: ripple-carry, carry-lookahead, and carry-select adders at 8, 16, 24, and 32 bits. Icarus Verilog checks 128 randomized vectors per design. Yosys/ABC maps each design against Nangate45; OpenROAD performs floorplanning, placement, global routing, and detailed routing; OpenRCX extracts routed parasitics using the public Nangate45 research rules. Power assumes uniform 10% switching activity and 50% duty cycle.
 
 - API: `GET /api/healthz`, `GET /api/benchmark/status`, `POST /api/benchmark/run`, `GET /api/benchmark/runs`, `GET /api/benchmark/model`, and `POST /api/benchmark/predict`.
 - Start the combined frontend/API workflow with `bash scripts/dev-stack.sh`.
 - The Nangate45 Liberty file is downloaded into the ignored `.cache/` directory on first run if it is not already present.
 - Benchmarks cover adder architectures only. The API saves up to 50 runs in the workspace PostgreSQL database, shared across app sessions. Replit's Publish flow applies schema changes to production after merge.
-- The surrogate is ridge regression trained on measured rows, with leave-one-width-out MAE/RMSE/R² and an inference endpoint limited to the measured width range. This small dataset does not establish transfer to other circuit families.
-- The UI computes a three-objective area/routed-delay/power Pareto set within each width. Power is vectorless and routing is global-route only; neither is signoff or foundry-qualified.
-- The flow does not run detailed routing, RC extraction with foundry-qualified process corners, clock-tree synthesis, IR-drop, or signoff timing/power analysis.
+- The surrogate is ridge regression trained on unique architecture/width measurements, with leave-one-width-out MAE/RMSE/R² and an inference endpoint limited to the measured width range. This small dataset does not establish transfer to other circuit families.
+- The UI compares area, OpenRCX-extracted delay, and vectorless power using a three-objective Pareto set within each width. Detailed-route DRC counts are reported. Research PDK extraction is not foundry-qualified signoff.
+- The flow does not run OpenRCX/SPEF extraction with foundry-qualified process corners, clock-tree synthesis (the examples are combinational), IR-drop, or signoff timing/power analysis.
 
 The rest of this README describes the original prototype and research goals, not additional implemented capabilities.
 
@@ -151,7 +151,7 @@ Yes. It fits ridge regression using saved EDA measurements for adder width and a
 A learned estimate is approximate and may be unreliable outside its training data. The EDA sweep remains the measurement source; the surrogate is for exploration, not signoff.
 
 **What is PPA, and how is performance represented here?**  
-PPA means power, performance, and area. The benchmark reports mapped standard-cell area, OpenROAD global-route estimated delay, and vectorless power in Nangate45.
+PPA means power, performance, and area. The benchmark reports mapped standard-cell area, OpenSTA timing after OpenRCX detailed-route parasitic extraction, and vectorless power in Nangate45.
 
 **What does WNS mean?**  
 Worst Negative Slack is the most timing-critical slack across constrained timing paths. This benchmark does not claim signoff WNS: it reports combinational path delay using a virtual clock and zero external I/O delays.
@@ -167,10 +167,10 @@ The benchmark holds out each complete bit width in turn. That tests interpolatio
 Dynamic power depends on activity, capacitance, voltage, and frequency (`P ≈ α C V² f`). The benchmark uses OpenROAD's vectorless estimate with uniform 10% activity and 50% duty cycle. It does not use a gate-level activity trace, so the number is not signoff power.
 
 **What is the current project deliverable?**  
-An interactive, adder-focused EDA workflow: randomized functional checks, Yosys/ABC mapping, OpenROAD placement and global routing, timing/power estimates, PostgreSQL-backed run history, three-objective Pareto comparison, and a measured-data ridge-regression surrogate.
+An interactive, adder-focused EDA workflow: randomized functional checks, Yosys/ABC mapping, OpenROAD placement plus global and detailed routing, timing/power estimates, PostgreSQL-backed run history, three-objective Pareto comparison, and a measured-data ridge-regression surrogate.
 
 **What is required before claiming that the optimizer works?**  
-The current prototype demonstrates this loop only for three adder architectures at four widths. Broader circuit families, detailed routing, extracted process-corner parasitics, and signoff-quality timing/power remain necessary before claiming a general-purpose optimizer.
+The current prototype demonstrates this loop only for three adder architectures at four widths. Broader circuit families, extracted process-corner parasitics, realistic workload activity, and signoff-quality timing/power remain necessary before claiming a general-purpose optimizer.
 
 ## Feasibility assumptions from the synopsis
 
@@ -178,9 +178,9 @@ The synopsis suggests at least a 4-core CPU, 8 cores preferred for parallel runs
 
 ## Remaining scope
 
-1. Detailed routing currently fails on a ground-typed tie net in one generated architecture. Results therefore stop at global routing and estimated parasitics.
-2. Expand RTL generation and functional tests beyond adders, then collect enough measured rows for meaningful family-held-out model validation.
-3. Power uses vectorless activity assumptions; add trace-based activity and process-corner characterization before signoff claims.
+1. Expand RTL generation and functional tests beyond adders, then collect enough unique measurements for meaningful circuit-family-held-out model validation.
+2. Add realistic timing constraints and workload-derived switching activity before signoff-oriented comparisons.
+3. Build a genuine search loop that proposes RTL/configurations, runs EDA, and confirms model-selected candidates instead of only predicting within a fixed set.
 
 ## Presentation accuracy check
 

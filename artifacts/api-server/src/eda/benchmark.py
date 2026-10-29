@@ -43,19 +43,20 @@ end endgenerate endmodule"""
         lines.append(f"assign cout=c[{width}]; endmodule")
         return "\n".join(lines)
     block = 4
+    blocks = (width + block - 1) // block
     lines = [f"module top(input [{width-1}:0] a,b, input cin, output [{width-1}:0] sum, output cout);",
-             f"wire [{width}:0] carry; assign carry[0]=cin;"]
-    for low in range(0, width, block):
+             f"wire [{blocks}:0] block_carry; assign block_carry[0]=cin;"]
+    for block_index, low in enumerate(range(0, width, block)):
         high = min(width, low + block) - 1
         size = high - low + 1
         lines.extend([
             f"wire [{size}:0] sum0_{low}, sum1_{low};",
             f"assign sum0_{low} = {{1'b0,a[{high}:{low}]}} + {{1'b0,b[{high}:{low}]}};",
             f"assign sum1_{low} = {{1'b0,a[{high}:{low}]}} + {{1'b0,b[{high}:{low}]}} + 1'b1;",
-            f"assign sum[{high}:{low}] = carry[{low}] ? sum1_{low}[{size-1}:0] : sum0_{low}[{size-1}:0];",
-            f"assign carry[{high+1}] = carry[{low}] ? sum1_{low}[{size}] : sum0_{low}[{size}];",
+            f"assign sum[{high}:{low}] = block_carry[{block_index}] ? sum1_{low}[{size-1}:0] : sum0_{low}[{size-1}:0];",
+            f"assign block_carry[{block_index+1}] = block_carry[{block_index}] ? sum1_{low}[{size}] : sum0_{low}[{size}];",
         ])
-    lines.append(f"assign cout=carry[{width}]; endmodule")
+    lines.append(f"assign cout=block_carry[{blocks}]; endmodule")
     return "\n".join(lines)
 
 
@@ -63,6 +64,7 @@ def prepare_physical_assets():
     files = {
         "NangateOpenCellLibrary.tech.lef": "lef/NangateOpenCellLibrary.tech.lef",
         "NangateOpenCellLibrary.macro.mod.lef": "lef/NangateOpenCellLibrary.macro.mod.lef",
+        "rcx_patterns.rules": "rcx_patterns.rules",
     }
     for name, remote in files.items():
         path = LIBERTY.parent / name
@@ -93,8 +95,10 @@ def physical_analysis(work, width):
         "global_placement -density .30", "detailed_placement",
         "repair_tie_fanout LOGIC0_X1/Z -separation 0",
         "repair_tie_fanout LOGIC1_X1/Z -separation 0",
+        "set_routing_layers -signal metal2-metal6 -clock metal5-metal6",
         "global_route -guide_file route.guide",
-        "estimate_parasitics -global_routing",
+        "detailed_route -output_drc detailed_route.drc -output_maze detailed_route.maze -output_guide_coverage detailed_route.coverage -verbose 1",
+        f"extract_parasitics -ext_model_file {LIBERTY.parent / 'rcx_patterns.rules'}",
         "set_power_activity -global -activity 0.10 -duty 0.50",
         "report_power", "report_checks -path_delay max", "exit",
     ])
@@ -107,13 +111,22 @@ def physical_analysis(work, width):
     )
     if not arrival or not power:
         raise RuntimeError("OpenROAD completed without routed timing and power reports.")
+    drc_match = re.findall(r"Number of violations\s*=\s*(\d+)", report)
+    wire_match = re.findall(r"Total wire length\s*=\s*([0-9.]+)\s+um", report)
+    via_match = re.findall(r"Total number of vias\s*=\s*(\d+)", report)
+    if not drc_match:
+        raise RuntimeError("OpenROAD completed without a detailed-route DRC summary.")
     return {
         "routedDelayNs": float(arrival.group(1)),
         "internalPowerW": float(power.group(1)),
         "switchingPowerW": float(power.group(2)),
         "leakagePowerW": float(power.group(3)),
         "totalPowerW": float(power.group(4)),
-        "routing": "OpenROAD placement + global route; estimated global-route parasitics",
+        "routing": "OpenROAD placement + global and detailed routing",
+        "detailedRouteDrcViolations": int(drc_match[-1]),
+        "detailedRouteWireLengthUm": float(wire_match[-1]) if wire_match else None,
+        "detailedRouteViaCount": int(via_match[-1]) if via_match else None,
+        "parasitics": "OpenRCX detailed-route extraction using the Nangate45 rules file; not foundry-qualified",
         "powerActivity": "uniform 10% switching, 50% duty; vectorless estimate",
     }
 
@@ -161,7 +174,7 @@ def benchmark(architecture, width):
             "synthesis": "Yosys + ABC, Nangate45 typical liberty",
             "elapsedSeconds": round(time.time() - run_started, 2),
             "areaSource": "mapped Liberty cell area",
-            "timingSource": "OpenSTA max combinational path, ideal interconnect, zero external I/O delay",
+        "timingSource": "OpenSTA max path after OpenRCX extraction; virtual clock, ideal clock, zero external I/O delay",
         }
 
 

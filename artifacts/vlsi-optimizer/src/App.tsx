@@ -75,9 +75,12 @@ type EdaResult = {
   simulation: string;
   synthesis: string;
   timingSource: string;
+  detailedRouteDrcViolations?: number;
+  detailedRouteWireLengthUm?: number | null;
+  detailedRouteViaCount?: number | null;
 };
 type EdaRun = { id?: string; createdAt?: string; status: string; platform: string; toolVersions: Record<string, string>; results: EdaResult[]; history?: EdaRun[] };
-type ModelReport = { status: string; model?: string; samples?: number; minimumSamples?: number; widthRange?: number[]; validation?: string; metrics?: Record<string, { mae: number | null; rmse: number | null; r2: number | null }>; prediction?: Record<string, number>; predictionLabel?: string };
+type ModelReport = { status: string; model?: string; samples?: number; uniqueDesigns?: number; minimumSamples?: number; widthRange?: number[]; validation?: string; metrics?: Record<string, { mae: number | null; rmse: number | null; r2: number | null }>; prediction?: Record<string, number>; predictionLabel?: string };
 
 const defaultConfig: CircuitConfig = {
   family: 'Adder',
@@ -279,11 +282,11 @@ function EdaResultsPanel({ run }: { run: EdaRun }) {
       <PanelTitle icon={Cpu} eyebrow="EDA / measured run" title="Synthesis benchmark results" detail={`${run.platform} · ${run.results.length} RTL points · functional simulation passed`} action={<span className="font-mono-ui text-[9px] text-emerald-300">REAL TOOL OUTPUT</span>} />
       <div className="mobile-scroll">
         <table className="w-full min-w-[780px] text-left">
-          <thead><tr className="border-b border-slate-800 text-[9px] uppercase tracking-wider text-slate-600"><th className="px-5 py-3">Architecture</th><th className="px-3 py-3">Width</th><th className="px-3 py-3">Mapped area</th><th className="px-3 py-3">Routed delay</th><th className="px-3 py-3">Power (mW)</th><th className="px-3 py-3">3D frontier</th><th className="px-5 py-3">Simulation</th></tr></thead>
-          <tbody>{run.results.map((item) => <tr key={`${item.architecture}-${item.bitWidth}`} className="border-b border-slate-800/70 last:border-0"><td className="px-5 py-3 text-[11px] text-slate-300">{item.architecture}{item.bestAreaAtWidth && <span className="ml-2 rounded bg-emerald-300/10 px-1.5 py-0.5 font-mono-ui text-[8px] text-emerald-300">LOWEST AREA</span>}</td><td className="px-3 py-3 font-mono-ui text-[11px]">{item.bitWidth} bit</td><td className="px-3 py-3 font-mono-ui text-[11px] text-violet-200">{item.areaUm2.toFixed(3)} µm²</td><td className="px-3 py-3 text-[10px] text-slate-300">{item.routedDelayNs.toFixed(3)} ns</td><td className="px-3 py-3 text-[10px] text-cyan-200">{(item.totalPowerW * 1000).toPrecision(3)}</td><td className="px-3 py-3 text-[9px]">{item.pareto ? <span className="text-cyan-200">PARETO</span> : <span className="text-slate-600">—</span>}</td><td className="px-5 py-3 text-[10px] text-emerald-300">{item.simulation}</td></tr>)}</tbody>
+          <thead><tr className="border-b border-slate-800 text-[9px] uppercase tracking-wider text-slate-600"><th className="px-5 py-3">Architecture</th><th className="px-3 py-3">Width</th><th className="px-3 py-3">Mapped area</th><th className="px-3 py-3">Extracted-route delay</th><th className="px-3 py-3">Detail-route DRCs</th><th className="px-3 py-3">Power (mW)</th><th className="px-3 py-3">3D frontier</th><th className="px-5 py-3">Simulation</th></tr></thead>
+          <tbody>{run.results.map((item) => <tr key={`${item.architecture}-${item.bitWidth}`} className="border-b border-slate-800/70 last:border-0"><td className="px-5 py-3 text-[11px] text-slate-300">{item.architecture}{item.bestAreaAtWidth && <span className="ml-2 rounded bg-emerald-300/10 px-1.5 py-0.5 font-mono-ui text-[8px] text-emerald-300">LOWEST AREA</span>}</td><td className="px-3 py-3 font-mono-ui text-[11px]">{item.bitWidth} bit</td><td className="px-3 py-3 font-mono-ui text-[11px] text-violet-200">{item.areaUm2.toFixed(3)} µm²</td><td className="px-3 py-3 text-[10px] text-slate-300">{item.routedDelayNs.toFixed(3)} ns</td><td className="px-3 py-3 text-[10px] text-emerald-200">{item.detailedRouteDrcViolations ?? '—'}</td><td className="px-3 py-3 text-[10px] text-cyan-200">{(item.totalPowerW * 1000).toPrecision(3)}</td><td className="px-3 py-3 text-[9px]">{item.pareto ? <span className="text-cyan-200">PARETO</span> : <span className="text-slate-600">—</span>}</td><td className="px-5 py-3 text-[10px] text-emerald-300">{item.simulation}</td></tr>)}</tbody>
         </table>
       </div>
-      <div className="border-t border-slate-800 px-5 py-3 text-[9px] text-slate-600">Synthesis: {run.toolVersions.yosys} · Physical: {run.toolVersions.openroad}. Power is vectorless at 10% toggle/50% duty; routed delay uses estimated parasitics and is not signoff.</div>
+      <div className="border-t border-slate-800 px-5 py-3 text-[9px] text-slate-600">Synthesis: {run.toolVersions.yosys} · Physical: {run.toolVersions.openroad}. Delay uses OpenRCX extraction after detailed routing; power is vectorless at 10% toggle/50% duty. Nangate45 research rules are not foundry-qualified signoff.</div>
     </section>
   );
 }
@@ -369,7 +372,21 @@ function Home() {
     setConfig({ family: candidate.family, architecture: candidate.architecture, bitWidth: candidate.bitWidth, pipelineDepth: candidate.pipelineDepth, clockPeriod: candidate.clockPeriod, toggleActivity: candidate.toggleActivity });
     setToast('Candidate loaded into the active workspace');
   };
-  const refreshDataset = () => { setRefreshed('no run yet'); setToast('No persistent dataset is configured. Run the EDA sweep to generate fresh results.'); };
+  const refreshDataset = async () => {
+    setRefreshed('refreshing…');
+    try {
+      const response = await fetch('/api/benchmark/runs');
+      if (!response.ok) throw new Error('Could not refresh saved benchmark runs.');
+      const data: { runs: EdaRun[] } = await response.json();
+      setEdaRuns(data.runs);
+      if (data.runs[0]) setEdaRun(data.runs[0]);
+      setRefreshed(new Date().toLocaleTimeString());
+      setToast(`Dataset refreshed: ${data.runs.length} saved runs`);
+    } catch (error) {
+      setRefreshed('refresh failed');
+      setToast(error instanceof Error ? error.message : 'Dataset refresh failed');
+    }
+  };
 
   return (
     <div className="console-shell console-grid flex min-h-[100dvh] text-slate-100">
